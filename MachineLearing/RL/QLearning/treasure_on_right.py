@@ -1,11 +1,3 @@
-"""
-A simple example for Reinforcement Learning using table lookup Q-learning method.
-An agent "o" is on the left of a 1 dimensional world, the treasure is on the rightmost location.
-Run this program and to see how the agent will improve its strategy of finding the treasure.
-
-View more on my tutorial page: https://morvanzhou.github.io/tutorials/
-"""
-
 import numpy as np
 import pandas as pd
 import time
@@ -22,13 +14,12 @@ GAMMA = 0.9  #  对未来预期 看重未来 1 ，现实 0 折扣因子，衡量
 MAX_EPISODES = 13  # maximum episodes
 FRESH_TIME = 0.3  # fresh time for one move
 
-"""
-Q 表
-位置 比如 6 种状态，Q 表的索引 
-"""
-
 
 def build_q_table(n_states, actions):
+    """
+    Q 表
+    位置 比如 6 种状态，Q 表的索引
+    """
     table = pd.DataFrame(
         np.zeros((n_states, len(actions))),  # q_table initial values
         columns=actions,  # actions's name
@@ -40,17 +31,18 @@ def build_q_table(n_states, actions):
 def choose_action(state, q_table):
     # This is how to choose an action
     state_actions = q_table.iloc[state, :]  # 将该位置的左右权数全部取出
-    if (np.random.uniform() > EPSILON) or ((state_actions == 0).all()):  # 非理性状态
+    if (np.random.uniform() > EPSILON) or ((state_actions == 1).all()):  # 非理性状态
         action_name = np.random.choice(ACTIONS)
     else:  # 理性状态
-        action_name = state_actions.idxmax()  # 取最大值作为 action 名字
+        action_name = state_actions.idxmax()  # 取最大值作为 action 名字   idxmax() 也可以有一定随机选择的可能
         # 返回方向（id)
     return action_name
 
 
 def get_env_feedback(S, A):
-    # This is how agent will interact with the environment
-    # 下一步的位置和奖励
+    """
+    下一步的位置和奖励
+    """
     if A == "right":  # move right
         if S == N_STATES - 2:  # terminate
             S_ = "terminal"
@@ -82,16 +74,12 @@ def update_env(S, episode, step_counter):
         time.sleep(FRESH_TIME)
 
 
-"""
-预期收益 q_predict = 选择方向的 Q table 值
-实际收益 q_target = 奖励 + 未来最大收益
- 
-0.1 冒险 0.9 现实
-"""
-
-
 def rl():
-    # main part of RL loop
+    """
+    预期收益 q_predict = 选择方向的 Q table 值
+    实际收益 q_target = 奖励 + 未来最大收益
+    0.1 冒险 0.9 现实
+    """
     q_table = build_q_table(N_STATES, ACTIONS)
     for episode in range(MAX_EPISODES):
         step_counter = 0
@@ -113,7 +101,7 @@ def rl():
             q_table.loc[S, A] += ALPHA * (q_target - q_predict)  #  更新 q 表
             S = S_  #  状态：往前走一步
 
-            update_env(S, episode, step_counter + 1) # 绘制新的游戏界面
+            update_env(S, episode, step_counter + 1)  # 绘制新的游戏界面
             step_counter += 1
             print("")
             print(q_table)
