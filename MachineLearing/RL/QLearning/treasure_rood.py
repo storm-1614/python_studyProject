@@ -5,20 +5,25 @@ import os
 
 np.random.seed(2)
 
-LEFT_STATE = 3  # 左侧长度
-RIGHT_STATE = 3  # 右侧长度
-UP_STATE = 3  # 上部长度
+LEFT_STATE = 5  # 左侧长度
+RIGHT_STATE = 5  # 右侧长度
+UP_STATE = 5  # 上部长度
 DOWN_STATE = 3  # 下部长度
 EPSILON = 0.9  # 理性值
 ALPHA = 0.1  # 学习率
 GAMMA = 0.9  # 对未来的预期
 ACTIONS = ["left", "right", "up", "down"]  # 可用方向
 
-MAX_EPISODES = 13  # 最大回合数
+LEFT_WALL = 0
+RIGHT_WALL = LEFT_STATE + RIGHT_STATE
+UP_WALL = LEFT_STATE + RIGHT_STATE + 1
+DOWN_WALL = LEFT_STATE + RIGHT_STATE + UP_STATE + DOWN_STATE
+
+MAX_EPISODES = 20  # 最大回合数
 FRESH_TIME = 0.1  # 刷新间隔
 nextAction = [""] * (LEFT_STATE + RIGHT_STATE + UP_STATE + DOWN_STATE + 1)
-AWARD_DOT = [6, 7, 12]  # 奖励列表
-# TODO: 未来可以实现一个惩罚表
+AWARD_DOT = [RIGHT_WALL, UP_WALL]  # 奖励列表
+BAD_DOT = [DOWN_WALL] #  惩罚表
 """
     迷宫图：
 
@@ -86,6 +91,8 @@ def getEnvFeedback(pos, action):
             nextPos = pos + 1
         if nextPos in AWARD_DOT:
             award = 1
+        elif nextPos in BAD_DOT:
+            award = -1
         else:
             award = 0
 
@@ -97,6 +104,8 @@ def getEnvFeedback(pos, action):
 
         if nextPos in AWARD_DOT:
             award = 1
+        elif nextPos in BAD_DOT:
+            award = -1
         else:
             award = 0
 
@@ -112,6 +121,8 @@ def getEnvFeedback(pos, action):
 
         if nextPos in AWARD_DOT:
             award = 1
+        elif nextPos in BAD_DOT:
+            award = -1
         else:
             award = 0
 
@@ -127,6 +138,8 @@ def getEnvFeedback(pos, action):
 
         if nextPos in AWARD_DOT:
             award = 1
+        elif nextPos in BAD_DOT:
+            award = -1
         else:
             award = 0
 
@@ -134,7 +147,7 @@ def getEnvFeedback(pos, action):
         nextPos = pos
         award = 0
 
-    if award == 1:
+    if award == 1 or award == -1:
         # 判断是否为奖励处
         nextPos = "terminal"
     return nextPos, award
@@ -152,6 +165,8 @@ def updateEnv(S, episode, stepCounter):
     for i in AWARD_DOT:
         # 将奖励位置绘制为 T
         envList[i] = "T"
+    for i in BAD_DOT:
+        envList[i] = "X"
     if S == "terminal":
         """
         如果遇到奖励也就是该回合结束，进行回合结算
