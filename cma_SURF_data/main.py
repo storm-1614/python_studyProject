@@ -25,20 +25,22 @@ xlsx_data = pandas.read_excel(
     skiprows=1,
 )
 
-station_name = "同安"
+if len(sys.argv) < 2:
+    station_name = "同安"
+else:
+    station_name = sys.argv[1]
 
-code = xlsx_data[xlsx_data["stationName"] == station_name]["code"].values[0]  # pyright: ignore[reportAttributeAccessIssue]
+station_code = xlsx_data[xlsx_data["stationName"] == station_name]["code"].values[0]  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def get_code():
+def get_datetime():
     datetime_now = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=20)
     if (datetime_now.hour % 3) != 0:
         datetime_now = datetime_now - datetime.timedelta(hours=(datetime_now.hour % 3))
-    dataCode = datetime_now.strftime("%Y%m%d%H")
-    return dataCode
+    return datetime_now.strftime("%Y%m%d%H")
 
 
-dataCode = get_code()
+dataCode = get_datetime()
 
 dataCode_begin = dataCode + "0000"
 dataCode_end = dataCode + "0000"
@@ -51,7 +53,7 @@ params = {
     "interfaceId": "getSurfEleByTimeRangeAndStaID",
     "dataCode": "SURF_CHN_MUL_HOR_3H",
     "timeRange": f"[{dataCode_begin},{dataCode_end}]",
-    "staIDs": f"{code}",
+    "staIDs": f"{station_code}",
     "elements": "Station_Id_C,Year,Mon,Day,Hour,TEM,PRS,PRS_Sea,RHU,PRE_3h,WIN_D_Avg_2mi,WIN_S_Avg_2mi,WEP_Now,VIS",
 }
 
@@ -84,6 +86,9 @@ class station_info:
         self.weather_now(wep_now_value)
 
     def weather_now(self, value):
+        """
+        判断现在天气观测值。接收一个整数，目前需要将其全部枚举出来。
+        """
         match value:
             case 0.0:
                 self.weather = "未观测或观测不到云的发展"
@@ -104,7 +109,7 @@ class station_info:
             case 8.0:
                 self.weather = "观测时或前1小时内在测站附近看到发展起来的尘旋或沙旋，但无尘暴或沙暴。"
             case _:
-                self.weather = f"未知代码：{value}"
+                self.weather = f"未知代码：{int(value)}"
 
 
 info = station_info(data)
@@ -124,7 +129,8 @@ print(
     "时",
     sep="",
 )
-print(f"{station_name}国家气象站({code})：")
+
+print(f"{station_name}国家气象站({station_code})：")
 print("气温：", info.temp, sep="")
 print("气压：", info.press, sep="")
 print("海平面气压：", info.press_sea, sep="")
