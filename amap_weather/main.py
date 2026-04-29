@@ -6,7 +6,7 @@ import logging
 import pandas
 import sys
 import ui
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 citydata_path = "./AMap_adcode_citycode_20210406.xlsx"
 
@@ -111,7 +111,7 @@ class weather_info:
             f"气温：\t\t{self.now_weather_data['temperature']}°C\n"
             f"风向：\t\t{self.now_weather_data['winddirection']}\n"
             f"风力：\t\t{self.now_weather_data['windpower']}级\n"
-            f"空气湿度：\t\t{self.now_weather_data['humidity']}%"
+            f"空气湿度：\t{self.now_weather_data['humidity']}%"
         )
         return result_str
 
@@ -163,7 +163,7 @@ def gui():
     app = QApplication(sys.argv)
     g = GuiPanel()
     g.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
