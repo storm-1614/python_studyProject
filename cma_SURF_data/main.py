@@ -108,6 +108,10 @@ class station_info:
                 self.weather = "观测时在测站或附近有风吹起的尘或沙，但无发展成熟的尘旋或沙旋，而且看不到尘暴或沙暴，或海洋站和沿海测站出现高吹飞沫"
             case 8.0:
                 self.weather = "观测时或前1小时内在测站附近看到发展起来的尘旋或沙旋，但无尘暴或沙暴。"
+            case 9.0:
+                self.weather = "观测时看得到尘暴或沙暴，或观测前1小时内在测站出现尘暴或沙暴。"
+            case 10.0:
+                self.weather = "薄雾"
             case _:
                 self.weather = f"未知代码：{int(value)}"
 
