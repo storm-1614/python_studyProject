@@ -1,0 +1,3 @@
+[tool.basedpyright]
+typeCheckingMode = "basic"
+pythonPath = "/home/storm/.conda/envs/rlenv/bin/python3.9"

@@ -84,7 +84,6 @@ class DQNAgent:
         # 计算目标 Q 值（使用目标网络)
         with torch.no_grad():
             next_q = self.target_net(next_states).max(1)[0]
-            print(next_q)
             target_q = rewards + self.gamma * next_q * (1 - dones)
 
         # 计算损失并更新网络
