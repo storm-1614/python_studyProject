@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
+import time
 
 table: NDArray = np.zeros([8, 8], dtype=float)
 state: int = 8 * 8 + 8
@@ -14,10 +15,10 @@ class grid_world:
         4 个 action: 0 ~ 3 代表上下左右
         """
         self.action_delta = {
-            0: (-1, 0),  # 上: row-1
-            1: (1, 0),   # 下: row+1
-            2: (0, -1),  # 左: col-1
-            3: (0, 1),   # 右: col+1
+            0: (-1, 0),  # 上
+            1: (1, 0),  # 下
+            2: (0, -1),  # 左
+            3: (0, 1),  # 右
         }
         self.rows: int = rows
         self.cols: int = cols
@@ -101,18 +102,13 @@ class QLearning:
         td_error = r + self.gamma * self.q_table[s1].max() - self.q_table[s0, a0]
         self.q_table[s0, a0] += self.learning_tate * td_error
 
-    def save(self):
-        return self.q_table
-
-    def load(self, q: NDArray):
-        self.q_table = q
-
 
 obstacle = [(2, 2), (4, 6), (1, 6)]
 env = grid_world(8, 8, obstacle)
 agent = QLearning(64, 4, 0.5, 0.9, 0.5)
-step = 0
-episode_steps = []  # 记录每轮的步数
+episode_steps = []     # 记录每轮的步数
+episode_success = []  # 记录每轮是否成功 (1=成功, 0=失败)
+success_window = 10   # 每多少轮统计一次成功次数
 
 for i in range(2000):
     state = env.reset()
@@ -125,7 +121,13 @@ for i in range(2000):
         state = next_state
         step += 1
     episode_steps.append(step)
-    if i % 200 == 0:
+    episode_success.append(1 if reward == 1.0 else 0)  # reward=1.0 表示到达终点
+    if (i + 1) % success_window == 0:
+        recent_success = sum(episode_success[-success_window:])
+        print(f"Episode {i + 1 - success_window + 1}~{i + 1}: "
+              f"成功 {recent_success}/{success_window} 次, "
+              f"最近步数 {step} 步")
+    elif i % 200 == 0:
         print(f"Episode {i}: {step} steps")
 
 print(f"最终步数: {step}")
@@ -137,14 +139,48 @@ def plot_training_curve(episode_steps: list[int], window: int = 100) -> None:
     plt.plot(episode_steps, linewidth=0.5, alpha=0.7)
     if len(episode_steps) >= window:
         ma = np.convolve(episode_steps, np.ones(window) / window, mode="valid")
-        plt.plot(ma, color="red", linewidth=2,
-                 label=f"{window}-episode moving average")
+        plt.plot(ma, color="red", linewidth=2, label=f"{window}-episode moving average")
     plt.xlabel("Episode")
     plt.ylabel("Steps")
     plt.title("Q-Learning Training Progress")
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig("training_curve.png", dpi=150, bbox_inches="tight")
+    plt.show()
+
+
+def plot_success_rate(
+    episode_success: list[int],
+    window: int = 10,
+) -> None:
+    """绘制每 window 轮的成功次数柱状图"""
+    chunk_success = [
+        sum(episode_success[i : i + window])
+        for i in range(0, len(episode_success), window)
+    ]
+    episode_ticks = [
+        i + 1 for i in range(0, len(episode_success), window)
+    ]
+
+    plt.figure(figsize=(12, 5))
+    plt.bar(
+        episode_ticks,
+        chunk_success,
+        width=window * 0.8,
+        align="edge",
+        alpha=0.7,
+        color="steelblue",
+        edgecolor="black",
+        linewidth=0.3,
+    )
+    plt.axhline(y=window, color="green", linestyle="--", label=f"满分 ({window})")
+    plt.xlabel("Episode")
+    plt.ylabel(f"Success / {window} episodes")
+    plt.title("Q-Learning — Success Count per 10 Episodes")
+    plt.ylim(0, window + 0.5)
+    plt.legend()
+    plt.grid(True, alpha=0.3, axis="y")
+    plt.savefig("success_rate.png", dpi=150, bbox_inches="tight")
     plt.show()
 
 
@@ -168,12 +204,26 @@ def plot_q_heatmap(
         ax.set_yticks(range(rows))
         for i in range(rows):
             for j in range(cols):
-                ax.text(j, i, f"{q_map[i, j]:.2f}", ha="center", va="center",
-                        fontsize=6,
-                        color="white" if q_map[i, j] < (vmin + vmax) / 2 else "black")
-        for (r, c) in obstacle:
-            ax.text(c, r, "X", ha="center", va="center", fontsize=8,
-                    color="black", fontweight="bold")
+                ax.text(
+                    j,
+                    i,
+                    f"{q_map[i, j]:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=6,
+                    color="white" if q_map[i, j] < (vmin + vmax) / 2 else "black",
+                )
+        for r, c in obstacle:
+            ax.text(
+                c,
+                r,
+                "X",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="black",
+                fontweight="bold",
+            )
 
     fig.colorbar(im, ax=axes, shrink=0.8, label="Q-value")
     fig.suptitle("Q-Values per Action", fontsize=15)
@@ -182,4 +232,5 @@ def plot_q_heatmap(
 
 
 plot_training_curve(episode_steps)
+plot_success_rate(episode_success)
 plot_q_heatmap(agent.q_table, 8, 8, obstacle)
