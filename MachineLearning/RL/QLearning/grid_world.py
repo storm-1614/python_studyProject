@@ -1,7 +1,6 @@
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib.pyplot as plt
-import time
 
 table: NDArray = np.zeros([8, 8], dtype=float)
 state: int = 8 * 8 + 8
