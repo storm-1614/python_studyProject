@@ -1,9 +1,28 @@
-from typing import TypedDict
+# python sql 学习
 
-import pymysql
-from pymysql.cursors import Cursor, DictCursor
+## pymysql
+这里用通讯录来学习 mysql 的增删改查  
+
+具体流程：  
+```
+Python 输入数据
+    ↓
+pymysql 连接 MySQL
+    ↓
+cursor.execute() 执行 SQL
+    ↓
+fetchone/fetchall 取结果
+    ↓
+commit 保存修改
+    ↓
+close 关闭连接
+```
 
 
+### 初始化
+连接 mysql 需要账户密码。这里用 docker 容器开放 3306 端口进行连接。  
+每一次操作 mysql 都要建立一次连接，这是短链接。  
+``` python
 DB_CONFIG: "DBConfig" = {
     "host": "localhost",
     "port": 3306,
@@ -21,14 +40,17 @@ class DBConfig(TypedDict, total=False):
     user: str
     password: str
     charset: str
-    database: str
+   database: str
     cursorclass: type[Cursor]
 
 
 def get_connection() -> pymysql.Connection:
     return pymysql.connect(**DB_CONFIG)
+```
 
+初始化要首先确定数据库与表的建立，这里数据库名为 contacts_db 表为 contacts。  
 
+``` python
 def init_db():
     conn = pymysql.connect(
         host="localhost", port=3306, user="root", password="password", charset="utf8mb4"
@@ -54,13 +76,40 @@ def init_db():
                     group_name VARCHAR(20)
                 )
             """)
-        conn.commit();
+        conn.commit()
     except Exception as e:
         print(f"创建表失败: {e}")
     finally:
         conn.close()
+```
 
+每一次建立后创建 cursor 游标对象进行操作。`cursor.execute()` 执行 SQL 语句操作数据库，这里仅将改动记录在内存的回滚日志和重做日志，其他连接者是看不到数据变化的。之后需要运行 `conn.commit()` 刷新日志、标记事物提交、释放锁并通知。    
 
+上述就已经执行了 2 条 SQL 语句。  
+``` sql
+CREATE DATABASE IF NOT EXISTS contacts_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+```
+判断 contacts_db 数据库如果不存在就创建，并且字符编码为 utf8。  
+
+``` sql
+CREATE TABLE IF NOT EXISTS contacts(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    phone VARCHAR(20) NOT NULL UNIQUE,
+    email VARCHAR(50),
+    address VARCHAR(100),
+    group_name VARCHAR(20)
+)
+```
+这个语句用于创建 contacts 的数据表，如果该表在数据库中还不存在的话。  
+这几行都在创建每一个列。有数据类型：`INT`、`VARCHAR`。还有限定 `NOT NULL`、`UNIQUE`、`AUTO_INCREMENT`、`PRIMARY KEY` ……  
+
+这样就确定好了数据表的数据项，确定了之后增删改查的基本操作。  
+
+### 增加联系人
+pymysql 的 exectue 两个参数： `query` 和 `args`。args 会填到 query 里的 %s 占位符位置。这里 pymysql 把参数传给 MYSQL 而非简单的字符串替换，这里是为了防止 SQL 注入攻击。  
+
+``` python
 def add_contact():
     """
     添加联系人
@@ -90,8 +139,17 @@ def add_contact():
         print(f"错误：{e}")
     finally:
         conn.close()
+```
 
+添加联系人用的 SQL 语句是:
+```sql
+INSERT INTO contacts(name, phone, email, address, group_name) VALUES(%s, %s, %s, %s, %s)
+```
 
+`INSERT INTO contacts` 往 contacts 表插入一条数据。后面加上括号对应列名，这样与 VALUES() 一一对应。SQL 语句在这里仅这样。  
+
+### 显示联系人
+``` python
 def show_all():
     """
     显示所有联系人
@@ -112,8 +170,19 @@ def show_all():
                 )
     finally:
         conn.close()
+```
 
+sql 语句如下：  
+```python
+SELECT * FROM contacts ORDER BY id
+```
+`SELECT * FROM contacts` 查询所有列  
+`ORDER BY id` 按照 id 升序排序。  默认其实是 `ORDER BY id ASC`，ASC 是升序，DESC 是降序。  
+用 `cursor.fetchall()` 将所有输出结果取出。因为前面的 cursor 对象建立的时候确定类型是 `DictCursor` 所以数据类型是字典。  
+之后就是操纵 python 的字典打印数据。  
 
+### 按对应数据搜索联系人
+``` python
 def search_contact():
     """
     按姓名或电话搜索
@@ -142,8 +211,28 @@ def search_contact():
             print("没有找到匹配的联系人。")
     finally:
         conn.close()
+```
+这里的 SQL 语句也是只有一句：  
+``` python
+cursor.execute(
+    "SELECT * FROM contacts WHERE name LIKE %s OR phone LIKE %s",
+    (f"%{keyword}%", f"%{keyword}%"),
+)
+```
+`WHERE` 表示查询条件，`name LIKE %s` 表示 name 字段要匹配某种模式，%s 是 pymysql 的参数占位符。 `OR` 是或者。  
+参数是 `%{keyword}%` 这类，%% 是 SQL LIKE 里的通配符。  
+
+有如下写法：  
+| 写法     | 含义           |
+|----------|----------------|
+| `"张%"`  | 以张为开头     |
+| `"%张"`  | 以张为结尾     |
+| `"%张%"` | 包含张         |
+| `"张"`   | 必须完全等于张 |
 
 
+### 修改联系人
+``` python
 def modify_contact():
     """
     修改联系人
@@ -198,8 +287,29 @@ def modify_contact():
         print("修改成功")
     finally:
         conn.close()
+```
+
+修改就略有复杂度。先找到对应 ID 的一行，然后修改这一行。  
+``` python
+cursor.execute("SELECT * FROM contacts WHERE id = %s", (int(contact_id),))
+```
+
+这里就是直接按 id 值查找对应数据，下面的 `fetchone` 便仅抓取一个。  
+之后询问修改，是提取数据后覆盖到原值，不过有匹配列字段进行覆盖。  
+使用 `UPDATE`。  
+``` python
+sql = f"UPDATE contacts SET {set_clause} WHERE id=%s"
+```
+最终生成的其实是类似这样的 sql 语句：
+``` sql
+UPDATE contacts SET name=%s, phone=%s WHERE id=%s
+```
+这样仅匹配需要修改的字段提升效率。  
 
 
+## 删除联系人
+
+``` python
 def delete_contact():
     contact_id = input("请输入要删除的联系人 ID：").strip()
     if not contact_id.isdigit():
@@ -217,37 +327,11 @@ def delete_contact():
 
     finally:
         conn.close()
+```
+
+仅查找对应 id 进行删除。  
+``` sql
+DELETE FROM contacts WHERE id = %s
+```
 
 
-def main_menu():
-    """主菜单"""
-    while True:
-        print("\n===== 通讯录管理系统 =====")
-        print("1. 添加联系人")
-        print("2. 查看所有联系人")
-        print("3. 搜索联系人")
-        print("4. 修改联系人")
-        print("5. 删除联系人")
-        print("0. 退出")
-        choice = input("请输入选项: ").strip()
-
-        if choice == "1":
-            add_contact()
-        elif choice == "2":
-            show_all()
-        elif choice == "3":
-            search_contact()
-        elif choice == "4":
-            modify_contact()
-        elif choice == "5":
-            delete_contact()
-        elif choice == "0":
-            print("再见！")
-            break
-        else:
-            print("无效选项，请重新输入。")
-
-
-if __name__ == "__main__":
-    init_db()
-    main_menu()
