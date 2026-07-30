@@ -41,7 +41,7 @@ class robot_dynamic_path_programming_v1:
         self.begin_pos = begin_pos  # (x, y)
         self.end_pos = end_pos  # (x, y)
         self.dynamic_row = dynamic_row  # y
-        self.states = self.rows * self.cols
+        self.states = self.rows * self.cols * self.cols
         self.action_delta = {
             0: (0, -1),  # 上
             1: (0, 1),  # 下
@@ -58,6 +58,13 @@ class robot_dynamic_path_programming_v1:
         return [list(line) for line in lines]
 
     def reset(self):
+        self.obstacle_pos = [0, self.dynamic_row]
+        self.obstacle_direction = 1
+        # 恢复地图中障碍物行：清除原障碍物标记，重新放置
+        for col in range(self.cols):
+            if self.maze[self.dynamic_row][col] == "#":
+                self.maze[self.dynamic_row][col] = "."
+        self.maze[self.dynamic_row][0] = "#"
         self.state = self.pos_to_state(*self.begin_pos)
         return self.state
 
@@ -102,12 +109,16 @@ class robot_dynamic_path_programming_v1:
 
     @property
     def get_pos(self):
-        y = self.state // self.cols
-        x = self.state % self.cols
+        agent_idx = self.state // self.cols
+        y = agent_idx // self.cols
+        x = agent_idx % self.cols
         return x, y
 
     def pos_to_state(self, x, y):
-        return y * self.cols + x
+        """状态编码：(agent位置, 障碍物x坐标) → 唯一状态索引"""
+        agent_idx = y * self.cols + x
+        obstacle_x = self.obstacle_pos[0]
+        return agent_idx * self.cols + obstacle_x
 
     def print_map(self):
         clear_screen()
@@ -156,7 +167,7 @@ def run_episode(
     while not done and step < max_steps:
         action = agent.take_action(state)
         next_state, reward, done = env.step(action)
-        if done and next_state == env.pos_to_state(*env.end_pos):
+        if done and env.get_pos == env.end_pos:
             success = True
         if train:
             agent.update(state, action, next_state, reward)
@@ -300,10 +311,14 @@ def plot_success_bar(successes: list[bool], group_size: int = 10) -> None:
 
 
 def plot_q_heatmap(q_table: np.ndarray, env: robot_dynamic_path_programming_v1) -> None:
-    """绘制每个动作的 Q 值热力图"""
+    """绘制每个动作的 Q 值热力图（在不同障碍物位置下取平均）"""
     action_names = ["↑ 上", "↓ 下", "← 左", "→ 右", "· 不动"]
+    n_actions = len(action_names)
+    # Q表形状: (agent_pos × obstacle_pos, n_actions)，按障碍物位置取平均
+    q_reshaped = q_table[:, :n_actions].reshape(env.rows * env.cols, env.cols, n_actions)
+    q_avg = q_reshaped.mean(axis=1)  # 对障碍物位置维度取平均 → (rows*cols, n_actions)
     q_maps = [
-        q_table[:, a].reshape(env.rows, env.cols) for a in range(len(action_names))
+        q_avg[:, a].reshape(env.rows, env.cols) for a in range(n_actions)
     ]
     vmin = min(m.min() for m in q_maps)
     vmax = max(m.max() for m in q_maps)
@@ -373,8 +388,12 @@ def plot_q_heatmap(q_table: np.ndarray, env: robot_dynamic_path_programming_v1) 
 def plot_max_q_heatmap(
     q_table: np.ndarray, env: robot_dynamic_path_programming_v1
 ) -> None:
-    """绘制每个位置的最大 Q 值热力图"""
-    max_q = q_table.max(axis=1).reshape(env.rows, env.cols)
+    """绘制每个位置的最大 Q 值热力图（在不同障碍物位置下取平均）"""
+    n_actions = q_table.shape[1]
+    # Q表形状: (agent_pos × obstacle_pos, n_actions)，按障碍物位置取平均的 max Q
+    q_reshaped = q_table[:, :n_actions].reshape(env.rows * env.cols, env.cols, n_actions)
+    q_avg = q_reshaped.mean(axis=1)  # (rows*cols, n_actions)
+    max_q = q_avg.max(axis=1).reshape(env.rows, env.cols)
     vmin = max_q.min()
     vmax = max_q.max()
 
@@ -464,7 +483,7 @@ end_pos = find_pos(maze_data, "G")
 
 env = robot_dynamic_path_programming_v1(map, begin_pos, end_pos, 2)
 main_agent = QLearning(
-    env.rows * env.cols,
+    env.rows * env.cols * env.cols,
     len(env.action_delta),
     learning_rate=0.5,
     gamma=0.9,
@@ -492,7 +511,7 @@ def search_best_params_by_ssa(agent: QLearning) -> tuple[float, float, float]:
             map, env.begin_pos, env.end_pos, env.dynamic_row
         )
         eval_agent = QLearning(
-            eval_env.rows * eval_env.cols,
+            eval_env.rows * eval_env.cols * eval_env.cols,
             len(eval_env.action_delta),
             learning_rate=float(learning_rate),
             gamma=float(gamma),
