@@ -134,12 +134,22 @@ class QLearning:
         td_error = r + self.gamma * self.q_table[s1].max() - self.q_table[s0, a0]
         self.q_table[s0, a0] += self.learning_rate * td_error
 
+    def manhattan_distance_q(self, goal_row, goal_col, rows, cols):
+        """用曼哈顿距离的倒数初始化 Q 表，离出口越近初值越高"""
+        for i in range(rows):
+            for j in range(cols):
+                distance = abs(goal_row - i) + abs(goal_col - j) + 1
+                for k in range(self.actions):
+                    self.q_table[i * cols + j, k] = 1 / distance
+
 
 def plot_q_heatmap(
     q_table: np.ndarray,
     rows: int,
     cols: int,
     maze: list[str],
+    title: str = "各动作 Q 值热力图（迷宫）",
+    save_path: str = "q_per_action.png",
 ) -> None:
     """绘制四个方向的分动作 Q 值热力图，墙用深色块特别标识"""
     action_names = ["↑ 上", "↓ 下", "← 左", "→ 右"]
@@ -207,8 +217,8 @@ def plot_q_heatmap(
                     )
 
     fig.colorbar(im, ax=axes, shrink=0.8, label="Q 值")
-    fig.suptitle("各动作 Q 值热力图（迷宫）", fontsize=15)
-    plt.savefig("q_per_action.png", dpi=150, bbox_inches="tight")
+    fig.suptitle(title, fontsize=15)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
@@ -217,6 +227,8 @@ def plot_max_q_heatmap(
     rows: int,
     cols: int,
     maze: list[str],
+    title: str = "各位置最大 Q 值（迷宫）",
+    save_path: str = "max_q_heatmap.png",
 ) -> None:
     """绘制每个位置最大 Q 值（最优动作价值）的热力图，墙用深色块特别标识"""
     # maze_navigation 使用 row-major 索引: state = row * cols + col
@@ -237,7 +249,7 @@ def plot_max_q_heatmap(
 
     fig, ax = plt.subplots(figsize=(8, 7), constrained_layout=True)
     im = ax.imshow(masked_q, cmap="RdYlGn", origin="upper", vmin=vmin, vmax=vmax)
-    ax.set_title("各位置最大 Q 值（迷宫）", fontsize=15)
+    ax.set_title(title, fontsize=15)
     ax.set_xticks(range(cols))
     ax.set_yticks(range(rows))
 
@@ -278,47 +290,144 @@ def plot_max_q_heatmap(
                 )
 
     fig.colorbar(im, ax=ax, shrink=0.8, label="max Q 值")
-    plt.savefig("max_q_heatmap.png", dpi=150, bbox_inches="tight")
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
-def plot_training_curve(episode_steps: list[int], window: int = 100) -> None:
-    """绘制每轮步数随训练的变化曲线"""
-    plt.figure(figsize=(10, 5))
-    plt.plot(episode_steps, linewidth=0.5, alpha=0.7)
-    if len(episode_steps) >= window:
-        ma = np.convolve(episode_steps, np.ones(window) / window, mode="valid")
-        plt.plot(ma, color="red", linewidth=2, label=f"{window}轮移动平均")
+def plot_training_curve(
+    series: dict[str, list[int]],
+    window: int = 100,
+    title: str = "Q-Learning 训练过程（迷宫问题）",
+    save_path: str = "training_curve.png",
+    max_episodes: int | None = None,
+) -> None:
+    """绘制每轮步数随训练的变化曲线，支持多条曲线对比
+
+    Parameters
+    ----------
+    series : dict[str, list[int]]
+        标签 → 步数列表，每条曲线一个键值对
+    window : int
+        移动平均窗口大小
+    title : str
+        图表标题
+    save_path : str
+        保存路径
+    max_episodes : int | None
+        仅绘制前 N 轮；为 None 则绘制全部
+    """
+    plt.figure(figsize=(12, 5))
+    colors = ["#d62728", "#1f77b4", "#2ca02c", "#ff7f0e"]
+    for idx, (label, steps) in enumerate(series.items()):
+        episodes = steps[:max_episodes] if max_episodes else steps
+        color = colors[idx % len(colors)]
+        plt.plot(
+            range(1, len(episodes) + 1),
+            episodes,
+            linewidth=0.8,
+            alpha=0.4,
+            color=color,
+        )
+        if len(episodes) >= window:
+            ma = np.convolve(episodes, np.ones(window) / window, mode="valid")
+            x_ma = range(window, len(episodes) + 1)
+            plt.plot(
+                x_ma,
+                ma,
+                color=color,
+                linewidth=2,
+                label=f"{label}（{window}轮MA）",
+            )
+        else:
+            # 数据不足 window 时仍显示图例
+            plt.plot([], [], color=color, linewidth=2, label=label)
     plt.xlabel("训练轮数")
     plt.ylabel("步数")
-    plt.title("Q-Learning 训练过程（迷宫问题）")
+    plt.title(title)
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig("training_curve.png", dpi=150, bbox_inches="tight")
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
 
-env = maze_navigation()
-agent = QLearning(64, 4, 0.5, 0.9, 0.5)
-espilon_decay = 0.9
-espilon_end = 0.1
-step_list = []
-for i in range(2000):
-    state = env.reset()
-    done = False
-    step = 0
-    while not done:
-        action = agent.take_action(state)
-        next_state, reward, done = env.step(action)
-        agent.update(state, action, next_state, reward)
-        state = next_state
-        step += 1
-        if i > 1998:
-            time.sleep(0.1)
-            env.map()
-    step_list.append(step)
-    agent.espilon = max(espilon_end, agent.espilon * espilon_decay)
+def train_one_run(env: maze_navigation, agent: QLearning, episodes: int, final_exec:bool) -> list[int]:
+    """训练单个 agent，返回每轮的步数列表"""
+    espilon_decay = 0.9
+    espilon_end = 0.1
+    step_list = []
+    for i in range(episodes):
+        state = env.reset()
+        done = False
+        step = 0
+        while not done:
+            action = agent.take_action(state)
+            next_state, reward, done = env.step(action)
+            agent.update(state, action, next_state, reward)
+            state = next_state
+            step += 1
+            if (final_exec and i > episodes - 2):
+                time.sleep(0.1)
+                env.map()
+        step_list.append(step)
+        agent.espilon = max(espilon_end, agent.espilon * espilon_decay)
+    return step_list
 
-plot_training_curve(step_list)
-plot_max_q_heatmap(agent.q_table, env.rows, env.cols, env.maze)
-plot_q_heatmap(agent.q_table, env.rows, env.cols, env.maze)
+
+np.random.seed(42)
+
+env = maze_navigation()
+
+# 无初始化（全零 Q 表）
+agent_zero = QLearning(64, 4, 0.5, 0.9, 0.5)
+steps_zero = train_one_run(env, agent_zero, 2000, False)
+
+# 曼哈顿距离初始化
+env2 = maze_navigation()
+agent_manhattan = QLearning(64, 4, 0.5, 0.9, 0.5)
+agent_manhattan.manhattan_distance_q(*env2.exit_pos, env2.rows, env2.cols)
+steps_manhattan = train_one_run(env2, agent_manhattan, 2000, True)
+
+# 对比前 20 轮收敛曲线
+plot_training_curve(
+    {"无初始化（全零）": steps_zero, "曼哈顿距离初始化": steps_manhattan},
+    window=5,
+    title="有无曼哈顿距离初始化的收敛性对比（前 20 轮）",
+    save_path="training_curve_comparison.png",
+    max_episodes=20,
+)
+
+# 全 2000 轮对比
+plot_training_curve(
+    {"无初始化（全零）": steps_zero, "曼哈顿距离初始化": steps_manhattan},
+    window=100,
+    title="有无曼哈顿距离初始化的收敛性对比（全 2000 轮）",
+    save_path="training_curve_comparison_full.png",
+)
+
+# 无初始化 — max Q 热力图
+plot_max_q_heatmap(
+    agent_zero.q_table, env.rows, env.cols, env.maze,
+    title="最大 Q 值 — 无初始化",
+    save_path="max_q_zero.png",
+)
+
+# 曼哈顿初始化 — max Q 热力图
+plot_max_q_heatmap(
+    agent_manhattan.q_table, env2.rows, env2.cols, env2.maze,
+    title="最大 Q 值 — 曼哈顿距离初始化",
+    save_path="max_q_manhattan.png",
+)
+
+# 无初始化 — 分动作 Q 热力图
+plot_q_heatmap(
+    agent_zero.q_table, env.rows, env.cols, env.maze,
+    title="各动作 Q 值 — 无初始化",
+    save_path="q_per_action_zero.png",
+)
+
+# 曼哈顿初始化 — 分动作 Q 热力图
+plot_q_heatmap(
+    agent_manhattan.q_table, env2.rows, env2.cols, env2.maze,
+    title="各动作 Q 值 — 曼哈顿距离初始化",
+    save_path="q_per_action_manhattan.png",
+)
