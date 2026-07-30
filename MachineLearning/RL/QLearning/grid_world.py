@@ -6,7 +6,12 @@ table: NDArray = np.zeros([8, 8], dtype=float)
 state: int = 8 * 8 + 8
 row: int = 8
 col: int = 8
-
+# 字体
+plt.rcParams["font.sans-serif"] = [
+    "Source Han Sans SC",
+    "Noto Sans CJK SC",
+    "SimHei",
+]
 
 class grid_world:
     def __init__(self, rows: int, cols: int, obstacle: list[tuple[int, int]]) -> None:
