@@ -3,8 +3,14 @@ Q Learning 单路口仿真
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
+
+# 图表中文字体：首选思源黑体，次选黑体
+plt.rcParams["font.sans-serif"] = ["Source Han Sans SC", "SimHei", "Heiti SC"]
+plt.rcParams["axes.unicode_minus"] = False  # 正常显示负号
+
 
 
 class TwoPhaseIntersection(gym.Env):
@@ -93,6 +99,9 @@ class QLearning:
 env = TwoPhaseIntersection()
 agent = QLearning()
 
+totals = []  # 每 50 步采样一次的累计奖励
+sample_epochs = []
+
 for ep in range(5001):
     obs, _ = env.reset()
     total = 0
@@ -109,3 +118,24 @@ for ep in range(5001):
 
     if ep % 50 == 0:
         print(f"ep{ep} total={total:.0f} eps={agent.epsilon:.2f}")
+        totals.append(total)
+        sample_epochs.append(ep)
+
+if totals:
+    window = 10
+    kernel = np.ones(window) / window
+    totals_arr = np.asarray(totals)
+    smooth = np.convolve(totals_arr, kernel, mode="valid")
+    smooth_epochs = sample_epochs[window - 1 :]
+
+    plt.figure(figsize=(12, 5))
+    plt.plot(sample_epochs, totals, linewidth=0.8, alpha=0.4, label="total", color="#a0a0a0")
+    plt.plot(smooth_epochs, smooth, linewidth=2, label="滑动平均", color="#2f6fb2")
+    plt.title("每 50 episode 累计奖励")
+    plt.xlabel("episode")
+    plt.ylabel("累计奖励 total")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.gca().invert_yaxis()
+    plt.savefig("qlearning_total.png", dpi=150)
+    plt.show()
