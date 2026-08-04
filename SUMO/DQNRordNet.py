@@ -56,8 +56,8 @@ class DQN:
         action_dim,
         learning_rate,
         gamma,
+        tau,  # 软更新参数
         epsilon,
-        target_update,
         device,
     ):
         self.obs_dim = obs_dim
@@ -67,10 +67,9 @@ class DQN:
         self.target_q_net = Qnet(obs_dim, action_dim).to(device)
         self.learning_rate = learning_rate
         self.gamma = gamma
+        self.tau = tau
         self.epsilon = epsilon
-        self.target_update = target_update
         self.device = device
-        self.count = 0
         self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=learning_rate)
 
     def take_actionn(self, obs):
@@ -83,7 +82,11 @@ class DQN:
 
     def update(self, transition_dict):
         obs = torch.tensor(transition_dict["obs"], dtype=torch.float).to(self.device)
-        actions = torch.tensor(transition_dict["actions"], dtype=torch.long).view(-1, 1).to(self.device)
+        actions = (
+            torch.tensor(transition_dict["actions"], dtype=torch.long)
+            .view(-1, 1)
+            .to(self.device)
+        )
         rewards = (
             torch.tensor(transition_dict["rewards"], dtype=torch.float)
             .view(-1, 1)
@@ -112,9 +115,12 @@ class DQN:
         dqn_loss.backward()
         self.optimizer.step()
 
-        if self.count % self.target_update == 0:
-            self.target_q_net.load_state_dict(self.q_net.state_dict())
-        self.count += 1
+        for target_param, q_param in zip(
+            self.target_q_net.parameters(), self.q_net.parameters()
+        ):
+            target_param.data.copy_(
+                self.tau * q_param.data + (1 - self.tau) * target_param.data
+            )
 
 
 class TwoPhaseIntersection(gym.Env):
@@ -176,6 +182,7 @@ target_update = 10
 buffer_size = 10000
 minimal_size = 500
 batch_size = 64
+tau = 0.007
 
 epsilon_min = 0.01
 epsilon_decay = 0.995
@@ -191,7 +198,7 @@ obs_dim = env.observation_space.shape[0]
 action_dim = env.action_space.n
 
 replay_buffer = ReplayBuffer(buffer_size)
-agent = DQN(obs_dim, hidden_dim, action_dim, lr, gamma, epsilon_start, target_update, device)
+agent = DQN(obs_dim, hidden_dim, action_dim, lr, gamma, tau, epsilon_start, device)
 
 for ep in range(num_episodes):
     obs, _ = env.reset()
@@ -215,8 +222,8 @@ for ep in range(num_episodes):
             agent.update(transition_dict)
         obs = next_obs
         total += reward
-        agent.epsilon = max(epsilon_min, agent.epsilon * epsilon_decay)
         if terminated or truncated:
             break
+    agent.epsilon = max(epsilon_min, agent.epsilon * epsilon_decay)
     if ep % 50 == 0:
         print(f"ep{ep} total={total:.0f} eps={agent.epsilon:.2f}")
