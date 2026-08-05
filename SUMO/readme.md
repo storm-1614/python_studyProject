@@ -82,6 +82,200 @@ if replay_buffer.size() > minimal_size:
     agent.update(transition_dict)
 ```
 
-DQN 的收敛效果显然更好，基本上可以收敛到最优的结果。  
+DQN 的收敛效果显然更好些，基本上可以收敛到最优的结果。  
 
 ![](./res/dqn_total.png)
+
+
+## 分析现有路网与车流文件
+
+SUMO 的配置文件关系是：  
+```
+sumocfg 加载 -> net.xml(地图) + rou.xml (车)  
+```
+
+`cross.sumocfg` 是总开关，`cross.net.xml` 是路网，`cross.rou.xml` 是车流。  
+
+### net.xml
+`<location>` 记录地图的坐标边界，横坐标 - 100 到 500，纵坐标 -300 到 500。  
+``` xml
+<location netOffset="0.00,0.00" convBoundary="-100.00,-300.00,500.00,300.00" origBoundary="10000000000.00,10000000000.00,-10000000000.00,-10000000000.00" projParameter="!"/>
+```
+
+#### `<edge>`一条路段， `<lane>` 路上的一条车道。比如：  
+``` xml
+<edge id="E0" from="J0" to="J1" priority="-1">
+    <lane id="E0_0" index="0" speed="16.67" length="286.40" shape="-100.00,-8.00 186.40,-8.00"/>
+    <lane id="E0_1" index="1" speed="16.67" length="286.40" shape="-100.00,-4.80 186.40,-4.80"/>
+    <lane id="E0_2" index="2" speed="16.67" length="286.40" shape="-100.00,-1.60 186.40,-1.60"/>
+</edge>
+```
+
+- `id` 为路段名  
+- `from`->`to` 从哪到哪  
+- `priority` 静态优先级，-1 为无信号的保底，实际是信号灯接管。  
+lane 内：  
+- `index` 是车道从右往左的编号
+- `speed` 限速以 m/s 为单位  
+- `length` 路段长度(m)  
+- `shape` 几何形状
+
+**edge 命名黄金法则：正向无负号，反向带 `-`**  
+- `E0/E1/E2/E3` = 都驶入交叉口（进）  
+- `-E0/-E1/-E2/-E3` = 都驶出交叉口（出）  
+
+#### `<junction>` 交叉口：  
+
+<!--TODO: 这里不完善-->
+``` xml
+<junction id="J1" type="dead_end" x="-100.00" y="0.00" incLanes="-E0_0 -E0_1 -E0_2" intLanes="" shape="-100.00,0.00 -100.00,9.60 -100.00,0.00"/>
+<junction id="J1" type="traffic_light" x="200.00" y="0.00" incLanes="-E3_0 -E3_1 -E3_2 -E1_0 -E1_1 -E1_2 -E2_0 -E2_1 -E2_2 E0_0 E0_1 E0_2" intLanes=":J1_0_0 :J1_1_0 :J1_12_0 :J1_3_0 :J1_4_0 :J1_13_0 :J1_6_0 :J1_7_0 :J1_14_0 :J1_9_0 :J1_10_0 :J1_15_0" shape="190.40,13.60 209.60,13.60 210.04,11.38 210.60,10.60 211.38,10.04 212.38,9.71 213.60,9.60 213.60,-9.60 211.38,-10.04 210.60,-10.60 210.04,-11.38 209.71,-12.38 209.60,-13.60 190.40,-13.60 189.96,-11.38 189.40,-10.60 188.62,-10.04 187.62,-9.71 186.40,-9.60 186.40,9.60 188.62,10.04 189.40,10.60 189.96,11.38 190.29,12.38">
+    <request index="0"  response="000000000000" foes="000000000000" cont="0"/>
+    <request index="1"  response="100000000000" foes="110100010000" cont="0"/>
+    <request index="2"  response="100010100000" foes="100010110000" cont="1"/>
+    <request index="3"  response="000000000000" foes="000000000000" cont="0"/>
+    <request index="4"  response="000010000110" foes="100010000110" cont="0"/>
+    <request index="5"  response="010110000100" foes="010110000100" cont="1"/>
+    <request index="6"  response="000000000000" foes="000000000000" cont="0"/>
+    <request index="7"  response="000000100000" foes="010000110100" cont="0"/>
+    <request index="8"  response="100000100010" foes="110000100010" cont="1"/>
+    <request index="9"  response="000000000000" foes="000000000000" cont="0"/>
+    <request index="10" response="000110000010" foes="000110100010" cont="0"/>
+    <request index="11" response="000100010110" foes="000100010110" cont="1"/>
+</junction>
+```
+- `J1 type="traffic_light"` 唯一带红绿灯的节点。  
+- `J0-J4 type="dead_end` 地图边缘
+- `:J1_12_0 type="internal"` 交叉口内部节点  
+
+#### `<connection>` 
+``` xml
+<connection from="-E1" to="E3" fromLane="0" toLane="0" via=":J1_3_0" tl="J1" linkIndex="3" dir="r" state="O"/>
+```
+这句的意思是从 `-E1` 的第 0 车道出发，可以转到 `E3` 的第 0 车道。  
+- `dir` 这个转弯时直行(s)、右转(r)、左转(l)  
+- `linkIndex="N"` 这个转弯代表信号灯的哪一位，即 N。也就是 12 位 state 字符串的第 N 位。  
+
+#### `<tlLogic>` 红绿灯
+``` xml
+<tlLogic id="J1" type="static" programID="0" offset="0">
+    <phase duration="33" state="GGgGrrGGgGrr"/>
+    <phase duration="3"  state="yygyrryygyrr"/>
+    <phase duration="6"  state="rrGrrrrrGrrr"/>
+    <phase duration="3"  state="rryrrrrryrrr"/>
+    <phase duration="33" state="GrrGGgGrrGGg"/>
+    <phase duration="3"  state="yrryygyrryyg"/>
+    <phase duration="6"  state="rrrrrGrrrrrG"/>
+    <phase duration="3"  state="rrrrryrrrrry"/>
+</tlLogic>
+```
+
+- `id` 信号灯控制的交叉口  
+- `type="static` 固定配时
+- `duration` 这个相位持续多少秒
+- `state` 12 字符对应 12 个信号灯头(connection 的 linkIndex 0-11)
+
+state 字符含义：  
+- `G` 绿灯/ `g` 绿灯（车流路口的保护绿，等同于 G
+- `y` 黄灯
+- `r` 红灯
+
+例如： `<phase duration="33" state="GGgGrrGGgGrr"/>`
+这里第一位 `G`=linkIndex 0 绿灯  
+第 4 位 `G`，第 7-8 位的 GG……  
+
+信号灯的 12 位字符串信号灯头，其是 connection 的参数，
+```
+<phase duration="33" state="GGgGrrGGgGrr"/>
+按位对号入座，把 12 个灯头的当前灯色列出来：
+
+位:     0   1   2   3   4   5   6   7   8   9  10  11
+state:  G   G   g   G   r   r   G   G   g   G   r   r
+方向:   北右 北直 北左 东右 东直 东左 南右 南直 南左 西右 西直 西左
+灯:     绿  绿  绿  绿  红  红  绿  绿  绿  绿  红  红
+
+读法：第 0 位的 G，意思就是"北→西右转这个灯头现在是绿灯"。
+```
+
+每 3 位是一个进口方向的右转、直行、左转。
+
+### rou.xml
+描述的是什么时候、放什么车、走哪条路。  
+`<routes>...</routes>` 里面的子元素按固定顺序：`vType` -> `route` -> `vehicle` ，SUMO 要求先定义车型和路径，再确定某辆车用哪个车型走哪条路。  
+#### `<vType>` 车型定义
+``` xml
+<vType id="passenger" vClass="passenger" maxSpeed="16.67" accel="2.6" decel="4.5" sigma="0.5" length="5.0" color="1,1,0"/>
+<vType id="truck" vClass="truck" maxSpeed="16.67" accel="1.2" decel="2.5" sigma="0.5" length="12.0" color="1,0,0"/>
+```
+
+- `vClass` 车辆类型
+- `maxSpeed` 最大车速 m/s
+- `accel` 加速度
+- `decel` 减速度
+- `length` 车长
+- `color` GUI 颜色
+
+#### `<route>`  路径定义
+``` xml
+<route id="N_S" edges="-E3 E2"/>  <route id="S_N" edges="-E2 E3"/>  <route id="E_W" edges="-E1 -E0"/> <route id="W_E" edges="E0 E1"/>    
+```
+
+只有四条路，方向就是 id 名  
+比如 `<route id="N_S" edges="-E3 E2"/>` 就是北入南出。net 定义可以走的路，rou 选择走哪些。  
+
+#### `<vehicle>` 具体车辆
+例如：  
+``` xml
+<vehicle id="passenger_1" type="passenger" route="S_N" depart="25" departLane="random" departSpeed="14.26" />
+```
+- `id` 每辆车唯一名字，在 TriCi 要用这个名字操控它  
+- `type` 用的哪个 `<vType>`  
+- `route` 走哪条 `<route>`  
+- `depart` 什么时候进入道路，单位：秒  
+- `departLane` 出现在哪一车道,random:随机车道  
+- `departSpeed` 初速度 m/s  
+
+`<vehicle>` 实际是一份发车时间表。  
+
+### 交通工程核心概念
+#### 制动距离
+车辆以当前速度、以最大减速度刹车到完全停下所滑过的距离。  
+
+$$
+S=\frac{v^2}{2a}
+$$
+
+- $S$ 制动距离
+- $v$ 初始制动速度
+- $a$ 平均减速度  
+
+在判断绿灯变黄/红 时，某辆车能不能在停止线前停下，不能停就让它走，否则就是急刹甚至闯黄。  
+
+#### 黄灯困境区
+黄灯亮起瞬间，车辆处于一段进退两难的位置区：  
+- 若继续前冲，可能来不及在停止线前停下
+- 若急踩刹车，可能根本不够距离刹稳  
+
+定量：黄灯开始时，车离停止线的距离同时小于制动距离且大于按当前速度在黄灯时长能走的距离。  
+
+#### 碰撞时间 TTC
+如果两车保持当前速度和反向不变，再过几秒就会撞上。  
+
+$$
+TTC = \frac{D}{V_{rel}}
+$$
+
+- $D$ 两车之距
+- $V_{rel}$ 相对速度，后车速度 - 前车速度  
+
+TTC 越小越危险，通常 TTC > 3s 比较安全。  
+
+#### 后侵入时间 PET
+前后两辆车先后通过同一冲突点时的时间差。  
+PET = 第二辆车到达冲突点时刻 - 第一辆离开冲突点时刻。  
+
+#### 相位切换惩罚
+信号灯每切换一次相位/改变一次灯色所付出的代价（冲突风险，延误增加……）  
+
+#### 最小绿灯时间
+设定下限，保证绿相位至少放行能启动的那批车。  
