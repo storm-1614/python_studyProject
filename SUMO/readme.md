@@ -97,7 +97,7 @@ sumocfg 加载 -> net.xml(地图) + rou.xml (车)
 `cross.sumocfg` 是总开关，`cross.net.xml` 是路网，`cross.rou.xml` 是车流。  
 
 ### net.xml
-`<location>` 记录地图的坐标边界，横坐标 - 100 到 500，纵坐标 -300 到 500。  
+`<location>` 记录地图的坐标边界，横坐标 - 100 到 500，纵坐标 -300 到 300。  
 ``` xml
 <location netOffset="0.00,0.00" convBoundary="-100.00,-300.00,500.00,300.00" origBoundary="10000000000.00,10000000000.00,-10000000000.00,-10000000000.00" projParameter="!"/>
 ```
@@ -113,22 +113,29 @@ sumocfg 加载 -> net.xml(地图) + rou.xml (车)
 
 - `id` 为路段名  
 - `from`->`to` 从哪到哪  
-- `priority` 静态优先级，-1 为无信号的保底，实际是信号灯接管。  
+- `priority` 静态优先级，-1 仅在无信号交叉口决定让行级；此处 -E1/E0 等进口均为信号灯控制，故 priority 无实际作用统一为 -1。  
 lane 内：  
 - `index` 是车道从右往左的编号
 - `speed` 限速以 m/s 为单位  
 - `length` 路段长度(m)  
 - `shape` 几何形状
 
-**edge 命名黄金法则：正向无负号，反向带 `-`**  
-- `E0/E1/E2/E3` = 都驶入交叉口（进）  
-- `-E0/-E1/-E2/-E3` = 都驶出交叉口（出）  
+Depseek v4 flash 提供的口诀：  
+**🔑 edge 方向法则（以本项目数据验证，别用正负号判断进出）：**
+- **方向永远看 `from→to`，不看正负号。** `from` 是起点，`to` 是终点。
+- **进口** = `to="J1"`（车驶向交叉口、停在停止线前的方向）→ **信号灯只控制这些车道**。
+- **出口** = `from="J1"`（车驶离交叉口）→ 不管。
+- 本项目端到端对照（`net.xml`）：
+  - **进口**：`:E3`（北）、`:E1`（东）、`:E2`（南）、`E0`（西，注意是正的）
+  - **出口**：`E3`（北出）、`E1`（东出）、`E2`（南出）、`:E0`（西出）
+- **铁证**：`getControlledLanes("J1")` 返回的 12 条全是 `to="J1"` 的车道，其中 11 条带 `-`、只有 `E0` 是正的——**因为 `E0` 恰好也是进口**。正负号只是命名后缀，同一条双向路加 `-` 表相反朝向，**不能用来判断进出**。
+- 使用技巧：要排队/控制就用 `getControlledLanes("J1")` 的结果，按 `[0:3]/[3:6]/[6:9]/[9:12]` 切北/东/南/西，完全避开正负号的坑。
 
 #### `<junction>` 交叉口：  
 
 <!--TODO: 这里不完善-->
 ``` xml
-<junction id="J1" type="dead_end" x="-100.00" y="0.00" incLanes="-E0_0 -E0_1 -E0_2" intLanes="" shape="-100.00,0.00 -100.00,9.60 -100.00,0.00"/>
+<junction id="J0" type="dead_end" x="-100.00" y="0.00" incLanes="-E0_0 -E0_1 -E0_2" intLanes="" shape="-100.00,0.00 -100.00,9.60 -100.00,0.00"/>
 <junction id="J1" type="traffic_light" x="200.00" y="0.00" incLanes="-E3_0 -E3_1 -E3_2 -E1_0 -E1_1 -E1_2 -E2_0 -E2_1 -E2_2 E0_0 E0_1 E0_2" intLanes=":J1_0_0 :J1_1_0 :J1_12_0 :J1_3_0 :J1_4_0 :J1_13_0 :J1_6_0 :J1_7_0 :J1_14_0 :J1_9_0 :J1_10_0 :J1_15_0" shape="190.40,13.60 209.60,13.60 210.04,11.38 210.60,10.60 211.38,10.04 212.38,9.71 213.60,9.60 213.60,-9.60 211.38,-10.04 210.60,-10.60 210.04,-11.38 209.71,-12.38 209.60,-13.60 190.40,-13.60 189.96,-11.38 189.40,-10.60 188.62,-10.04 187.62,-9.71 186.40,-9.60 186.40,9.60 188.62,10.04 189.40,10.60 189.96,11.38 190.29,12.38">
     <request index="0"  response="000000000000" foes="000000000000" cont="0"/>
     <request index="1"  response="100000000000" foes="110100010000" cont="0"/>
@@ -145,7 +152,7 @@ lane 内：
 </junction>
 ```
 - `J1 type="traffic_light"` 唯一带红绿灯的节点。  
-- `J0-J4 type="dead_end` 地图边缘
+- `J0-J4 type="dead_end"` 地图边缘
 - `:J1_12_0 type="internal"` 交叉口内部节点  
 
 #### `<connection>` 
@@ -155,6 +162,7 @@ lane 内：
 这句的意思是从 `-E1` 的第 0 车道出发，可以转到 `E3` 的第 0 车道。  
 - `dir` 这个转弯时直行(s)、右转(r)、左转(l)  
 - `linkIndex="N"` 这个转弯代表信号灯的哪一位，即 N。也就是 12 位 state 字符串的第 N 位。  
+- `state` 是信号建议状态：0 = off/黄红初始态
 
 #### `<tlLogic>` 红绿灯
 ``` xml
@@ -279,3 +287,172 @@ PET = 第二辆车到达冲突点时刻 - 第一辆离开冲突点时刻。
 
 #### 最小绿灯时间
 设定下限，保证绿相位至少放行能启动的那批车。  
+
+## Traci
+连接 sumo：  
+``` python
+import traci
+
+traci.start(["sumo-gui", "-c", "cross.sumocfg"])
+traci.start(["sumo", "-c", "cross.sumocfg"])
+```
+
+### 获得车辆数据
+简单用于每隔 10 s 打印一次存在的车辆：  
+``` python
+while traci.simulation.getMinExpectedNumber() > 0: 
+    traci.simulationStep()  # 推进一个仿真步长 (1s)
+
+    t: float = traci.simulation.getTime() 
+    if int(t) % 10 != 0:
+        continue
+
+    vehs = traci.vehicle.getIDList()
+    if not vehs:
+        continue
+
+    """
+    打印车流
+    """
+    print(f"\n仿真时刻 {t}s | 在途 {len(vehs)} 辆")
+
+    for v in vehs:
+        speed = traci.vehicle.getSpeed(v)
+        lane = traci.vehicle.getLaneID(v)
+        vcls = traci.vehicle.getVehicleClass(v)
+        print(f"{v:<20} 车速={speed:6.2f} m/s 车道={lane:<8} 车型={vcls}")
+
+traci.close()
+```
+
+配置文件都是用 ./Traci/ 内的 sumocfg、net.xml、rou.xml。  
+通过 `traci.simulation.getMinExpectedNumber()` 获得当前在的车辆数。  
+通过 `traci.vehicle.getIDList()` 可以得到当前所有车辆都 ID 数据，通过该 ID 可以得到车辆的所有数据，例如上面获得车辆速度、车道和车型，都是通过 `traci.vehicle.getxxxx()` 方法获得的。  
+
+### 获得车道数据
+车跑在车道上，SUMO 对车道有 lanes 这个对象。同时，可以通过路口与车道相结合获得当前在该路口该车道等候的车辆数。  
+
+获得路口车道用 `all_lanes: tuple = traci.trafficlight.getControlledLanes()` 方法，返回一个元组，比如：  
+``` python
+('-E3_0', '-E3_1', '-E3_2', '-E1_0', '-E1_1', '-E1_2', '-E2_0', '-E2_1', '-E2_2', 'E0_0', 'E0_1', 'E0_2')
+```
+
+对其进行分类分东西南北四个方向:  
+``` python
+INLETS = {
+    "北": all_lanes[0:3],
+    "东": all_lanes[3:6],
+    "南": all_lanes[6:9],
+    "西": all_lanes[9:12],
+}
+```
+
+这样我们可以获得每一时刻路口各个方向等候的车辆数了，通过 plt 绘制图表可以清晰得到每一时刻的等候车辆图表：  
+
+``` python
+"""
+获得各向路口排队信息
+"""
+
+import traci
+import matplotlib.pyplot as plt
+
+# 图表中文字体：首选思源黑体，次选黑体
+plt.rcParams["font.sans-serif"] = ["Source Han Sans SC", "SimHei", "Heiti SC"]
+plt.rcParams["axes.unicode_minus"] = False  # 正常显示负号
+
+traci.start(["sumo", "-c", "cross.sumocfg", "--no-step-log"])
+
+all_lanes: tuple = traci.trafficlight.getControlledLanes("J1")
+
+INLETS = {
+    "北": all_lanes[0:3],
+    "东": all_lanes[3:6],
+    "南": all_lanes[6:9],
+    "西": all_lanes[9:12],
+}
+history = []
+while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[operator]
+    traci.simulationStep()
+
+    t: int = traci.simulation.getTime()  # type: ignore[assignment]
+
+    queue = {
+        name: sum(traci.lane.getLastStepHaltingNumber(l) for l in lanes)  # type: ignore[operator]
+        for name, lanes in INLETS.items()
+    }
+
+    history.append((t, *queue.values()))
+
+traci.close()
+
+ts = [h[0] for h in history]
+qs = list(zip(*[h[1:] for h in history]))
+
+names = ["北N", "东E", "南S", "西W"]
+
+for i, q in enumerate(qs):
+    plt.plot(ts, q, label=names[i])
+
+plt.legend()
+plt.xlabel("时间(s)")
+plt.ylabel("排队车数")
+plt.grid()
+
+plt.show()
+```
+
+绘制出来的图表：  
+
+![](./res/queue_curve.png)
+
+### 信号灯相位切换
+在实现对车道路口的统计后，核心还有对信号灯进行控制。这里先实现简易的固定相位配时的控制。  
+前面知道路口红绿灯按 12 位字符串进行控制，写成字符串常量：  
+``` python
+NS_GREEN = "GGGrrrGGGrrr"  # 南北绿
+NS_YELLOW = "yyyrrryyyrrr" # 南北黄
+EW_GREEN = "rrrGGGrrrGGG"  # 东西绿
+EW_YELLOW = "rrryyyrrryyy" # 东西黄
+```
+
+这样就有信号灯循环，可以将其组合成元组列表，元组的第二项就是该相位的持续时间：  
+``` python
+PHASES = [(NS_GREEN, 33), (NS_YELLOW, 2), (EW_GREEN, 33), (EW_YELLOW, 2)]
+```
+
+取 `hold`  为相位持续时间进行自减 1 的操作，当 hold 为 0 时切换相位就能实现简单的状态机操作：  
+
+``` python
+import traci
+
+traci.start(["sumo-gui", "-c", "cross.sumocfg"])
+
+TLS_ID = "J1"
+NS_GREEN = "GGGrrrGGGrrr"
+NS_YELLOW = "yyyrrryyyrrr"
+EW_GREEN = "rrrGGGrrrGGG"
+EW_YELLOW = "rrryyyrrryyy"
+PHASES = [(NS_GREEN, 33), (NS_YELLOW, 2), (EW_GREEN, 33), (EW_YELLOW, 2)]
+hold = PHASES[0][1]
+idx = 0
+while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[operator]
+    state, dur = PHASES[idx]
+    traci.trafficlight.setRedYellowGreenState(TLS_ID, state)
+    traci.simulationStep()
+    hold -= 1
+    if hold <= 0:
+        idx = (idx + 1) % len(PHASES)
+        hold = PHASES[idx][1]
+traci.close()
+```
+
+状态机就是：一堆明确的**状态** + 一个**此时在哪个状态**的指针 + 一条**什么时候该跳去那个状态**的规则。  
+
+所以有：  
+- 状态集合：`PHASES` 的 4 个相位
+- 当前状态：`idx` 指向 PHASES 的 4 个状态之一
+- 状态转移规则：循环内的 `if hold <= 0`
+- 状态内行为：  
+
+用取模做环绕是很不错的选择。  
