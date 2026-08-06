@@ -20,6 +20,7 @@ INLETS = {
     "西": all_lanes[9:12],
 }
 history = []
+history_queue = [(0.0, 0)]
 while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[operator]
     traci.simulationStep()
 
@@ -29,22 +30,20 @@ while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[operator]
         name: sum(traci.lane.getLastStepHaltingNumber(l) for l in lanes)  # type: ignore[operator]
         for name, lanes in INLETS.items()
     }
+    q = queue["南"] + queue["北"] + queue["东"] + queue["西"]
 
     history.append((t, *queue.values()))
+    history_queue.append((t, history_queue[-1][1] + q))
 
 traci.close()
+ts = [h[0] for h in history_queue]
+qs = [q[1] for q in history_queue]
 
-ts = [h[0] for h in history]
-qs = list(zip(*[h[1:] for h in history]))
-
-names = ["北N", "东E", "南S", "西W"]
-
-for i, q in enumerate(qs):
-    plt.plot(ts, q, label=names[i])
-
-plt.legend()
+plt.figure(figsize=(10, 5))
+plt.plot(ts, qs, "b-")
 plt.xlabel("时间(s)")
-plt.ylabel("排队车数")
-plt.grid()
+plt.ylabel("排队车辆数")
+plt.title("交叉口总排队车辆数随时间变化")
 
+plt.grid(True)
 plt.show()

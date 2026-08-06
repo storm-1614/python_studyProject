@@ -456,3 +456,154 @@ traci.close()
 - 状态内行为：  
 
 用取模做环绕是很不错的选择。  
+
+## 排队数优化控制
+上面是机械的按时间切换，如果加上排队数感应如果在应该切黄的时候当前还很多车辆就再加一次绿相位可以更好的优化。  
+实际我们只要保存绿灯字符串，对于黄灯只需要将绿灯的 G 换成 y 即可，由此得到：  
+``` python
+GREEN = {"NS": "GGGrrrGGGrrr", "EW": "rrrGGGrrrGGG"}
+def yellow_of(green_state):
+    """
+    把当前绿灯相位改黄
+    """
+    tl = ""
+    for c in green_state:
+        if c == "G":
+            tl += "y"
+        else:
+            tl += c
+    return tl
+```
+
+定义两个时间，一个做倒计时方便进行切换，一个在灯内做自增来确定最大绿：  
+``` python
+hold = GREEN_DUR
+phase_time = 0
+```
+
+只在一个绿灯相位周期走完也就是 hold 到 0 的时候对两向的车辆数计算，如果当前绿灯向的车辆还是多于另一方向，则基于其在来一个绿灯周期,直至最大绿。这是路口的最简优化方案。  
+
+只需要和 s2 那样，统计每个方向等候的车辆即可：  
+
+``` python
+    # 读当前两向排队情况
+    q = {
+        name: sum(traci.lane.getLastStepHaltingNumber(l) for l in lanes)  # type: ignore[assignment]
+        for name, lanes in INLETS.items()
+    }
+    ns, ew = q["南"] + q["北"], q["东"] + q["西"]
+```
+
+注意：**必须在 `simulationStep()` 之前 set 好该步的控制命令，否则慢一拍!**    
+
+灯的切换按如下控制语句进行：  
+```python
+    hold -= 1
+    phase_time += 1
+
+    if hold <= 0:
+        if not is_yellow:  # 绿灯完进黄
+            if (
+                cur == "NS" and ns + 2 > ew or cur == "EW" and ew + 2 > ns
+            ) and phase_time < MAX_GREEN:
+                print("续绿")
+                hold = GREEN_DUR
+                continue
+
+            is_yellow = True
+            hold = YELLOW_DUR
+            phase_time = 0
+        else:  # 黄灯走完
+            is_yellow = False
+            hold = GREEN_DUR
+            phase_time = 0
+            cur = "EW" if cur == "NS" else "NS"
+```
+
+
+由此得到控制代码：  
+``` python
+traci.start(["sumo-gui", "-c", "cross.sumocfg"])
+
+TLS_ID = "J1"
+GREEN = {"NS": "GGGrrrGGGrrr", "EW": "rrrGGGrrrGGG"}
+
+
+def yellow_of(green_state):
+    """
+    把当前绿灯相位改黄
+    """
+    tl = ""
+    for c in green_state:
+        if c == "G":
+            tl += "y"
+        else:
+            tl += c
+    return tl
+
+
+GREEN_DUR = 30
+YELLOW_DUR = 3
+
+MAX_GREEN = 60
+
+cur = "NS"
+hold = GREEN_DUR
+phase_time = 0
+is_yellow = False
+
+all_lanes = traci.trafficlight.getControlledLanes(TLS_ID)
+INLETS = {
+    "北": all_lanes[0:3],
+    "东": all_lanes[3:6],
+    "南": all_lanes[6:9],
+    "西": all_lanes[9:12],
+}
+
+history_queue = [(0.0, 0)]
+while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[assignment]
+    t: float = traci.simulation.getTime()  # type: ignore[assignment]
+    # 读当前两向排队情况
+    q = {
+        name: sum(traci.lane.getLastStepHaltingNumber(l) for l in lanes)  # type: ignore[assignment]
+        for name, lanes in INLETS.items()
+    }
+
+    ns, ew = q["南"] + q["北"], q["东"] + q["西"]
+    history_queue.append((t, history_queue[-1][1] + ns + ew))
+
+    # 设置当前相位灯
+    state = yellow_of(GREEN[cur]) if is_yellow else GREEN[cur]
+    traci.trafficlight.setRedYellowGreenState(TLS_ID, state)
+
+    traci.simulationStep()
+
+    hold -= 1
+    phase_time += 1
+
+    if hold <= 0:
+        if not is_yellow:  # 绿灯完进黄
+            if (
+                cur == "NS" and ns + 2 > ew or cur == "EW" and ew + 2 > ns
+            ) and phase_time < MAX_GREEN:
+                print("续绿")
+                hold = GREEN_DUR
+                continue
+
+            is_yellow = True
+            hold = YELLOW_DUR
+            phase_time = 0
+        else:  # 黄灯走完
+            is_yellow = False
+            hold = GREEN_DUR
+            phase_time = 0
+            cur = "EW" if cur == "NS" else "NS"
+
+traci.close()
+```
+
+将 s4 固定配时和 s5 的排队优化合并起来，我让 deepseek 写了 s6_compare.py 分别计算然后出交叉路口总时间对比图：  
+
+![](./res/s6_compare.png)
+
+可见仅作排队优化排队数就可以减少不少。  
