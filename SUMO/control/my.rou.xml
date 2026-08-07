@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<routes>
+    <!-- 车型定义 -->
+    <vType id="car" accel="2.6" decel="4.5" maxSpeed="16.67" length="5.0" color="1,0,0" />
+
+    <!-- 路径 -->
+    <route id="W_E" edges="E0 -E1" /> <!-- 西->东直穿 -->
+    <route id="E_W" edges="E1 -E0" /> <!-- 东->西直穿 -->
+    <route id="S_N" edges="E2 -E3" /> <!-- 南->北直穿 -->
+    <route id="N_S" edges="E3 -E2" /> <!-- 北->南直穿 -->
+
+    <flow id="f_w_e" type="car" route="W_E" begin="0" end="600" number="80"/>
+    <flow id="f_e_w" type="car" route="E_W" begin="5" end="600" number="80"/>
+    <flow id="f_s_n" type="car" route="S_N" begin="10" end="600" number="80"/>
+    <flow id="f_n_s" type="car" route="N_S" begin="15" end="600" number="80"/>
+
+</routes>

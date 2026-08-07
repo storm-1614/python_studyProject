@@ -607,3 +607,178 @@ traci.close()
 ![](./res/s6_compare.png)
 
 可见仅作排队优化排队数就可以减少不少。  
+但当我们拉来 sumo tripinfo，拿到：平均延误，平均静止等待，总停车次数和平均停车次数之后进行对比：  
+s4 固定配时：  
+```
+车辆总数(吞吐) : 1132 辆
+平均延误 timeLoss : 15.85 秒
+平均静止等待      : 7.96 秒
+总停车次数        : 578 次
+平均停车次数/辆   : 0.51 次
+```
+
+s5 续绿+最大绿：  
+```
+车辆总数(吞吐) : 1132 辆
+平均延误 timeLoss : 16.93 秒
+平均静止等待      : 9.09 秒
+总停车次数        : 582 次
+平均停车次数/辆   : 0.51 次
+```
+
+实际优化后的数据是不及固定配时的。  
+但是当前车流实际比较稀疏，优化的续绿使用的次数比较少，即使续绿车流很快走光反倒帮了倒忙。如果车辆密集用续绿会比较合适。  
+
+## 自建 net.xml
+对于 sumo 有完整的套件可以用于创建路网。先选取比较简单的通过 xml 文本的方式利用 `netconvert` 建立简单仅直行的十字路口。  
+
+对于一个路网，需要建立起节点、路线、连接这三块。分别用 `nod.xml`、`edg.xml`、`con.xml` 创建。  
+十字路口只需要五个节点，东西南北各一个，中间交叉口一个。这样确定好就绘制：  
+``` xml
+<nodes>
+    <node id="J0" x="-200" y="0" type="dead_end"/>
+    <node id="J1" x="0" y="0" type="traffic_light" /> <!--中心交叉口-->
+    <node id="J2" x="200" y="0" type="dead_end"/>
+    <node id="J3" x="0" y="-200" type="dead_end"/>
+    <node id="J4" x="0" y="200" type="dead_end"/>
+</nodes>
+```
+
+路线大致如下：  
+
+```
+                  北 (0, +200)
+                    │
+                    J4
+                    │
+                    │
+  西(-200,0)  J0 ── J1 ── J2   东(+200,0)
+  中心交叉口      (0,0)
+                    │
+                    │
+                    J3
+                    │
+                  南 (0, -200)
+```
+
+然后确定路线，要双向，用 numLanes 确定车道数，speed 规定限速。  
+``` xml
+<edges>
+    <edge id="E0" from="J0" to="J1" numLanes="3" speed="16.67" />
+    <edge id="E1" from="J2" to="J1" numLanes="3" speed="16.67" />
+    <edge id="E2" from="J3" to="J1" numLanes="3" speed="16.67" />
+    <edge id="E3" from="J4" to="J1" numLanes="3" speed="16.67" />
+    <edge id="-E0" from="J1" to="J0" numLanes="3" speed="16.67" />
+    <edge id="-E1" from="J1" to="J2" numLanes="3" speed="16.67" />
+    <edge id="-E2" from="J1" to="J3" numLanes="3" speed="16.67" />
+    <edge id="-E3" from="J1" to="J4" numLanes="3" speed="16.67" />
+</edges>
+```
+
+最后规定连接点，这样才能生成信号灯：  
+``` xml
+<connections>
+    <connection from="E0" to="-E1"/>
+    <connection from="E1" to="-E0"/>
+    <connection from="E2" to="-E3"/>
+    <connection from="E3" to="-E2"/>
+</connections>
+```
+
+最后通过 `netconvert` 生成最终的 net.xml 文件：  
+```
+netconvert --node-files my.nod.xml --edge-files my.edg.xml --connection-files my.con.xml --output-file my.net.xml
+```
+
+根据之前 rou.xml 的规则每个方向 1 辆车测试下：  
+``` xml
+<?xml version="1.0" encoding="UTF-8"?>
+
+<routes>
+    <!-- 车型定义 -->
+    <vType id="car" accel="2.6" decel="4.5" maxSpeed="16.67" length="5.0" color="1,0,0" />
+
+    <!-- 路径 -->
+    <route id="W_E" edges="E0 -E1" /> <!-- 西->东直穿 -->
+    <route id="E_W" edges="E1 -E0" /> <!-- 东->西直穿 -->
+    <route id="S_N" edges="E2 -E3" /> <!-- 南->北直穿 -->
+    <route id="N_S" edges="E3 -E2" /> <!-- 北->南直穿 -->
+
+    <vehicle id="v0" type="car" route="W_E" depart="0" />
+    <vehicle id="v1" type="car" route="E_W" depart="5" />
+    <vehicle id="v2" type="car" route="S_N" depart="10" />
+    <vehicle id="v3" type="car" route="N_S" depart="15" />
+
+</routes>
+```
+
+然后写好 sumocfg：
+
+``` xml
+<configuration>
+    <input>
+        <net-file value="my.net.xml"/>
+        <route-files value="my.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="600"/>
+    </time>
+    <output>
+        <tripinfo-output value="tripinfo.xml"/>
+    </output>
+</configuration>
+```
+
+之后就 `sumo-gui -c my.sumocfg` 就能跑了。  
+
+这样就实现简单的 sumo 路网配置。  
+
+rou.xml 还有更简单的写法。一个一个写 vehicle 显然太慢了，可以通过 flow 配置生成车流：  
+``` xml
+    <flow id="f_w_e" type="car" route="W_E" begin="0" end="600" number="80"/>
+    <flow id="f_e_w" type="car" route="E_W" begin="5" end="600" number="80"/>
+    <flow id="f_s_n" type="car" route="S_N" begin="10" end="600" number="80"/>
+    <flow id="f_n_s" type="car" route="N_S" begin="15" end="600" number="80"/>
+```
+
+---
+
+信号灯排列还是 12 位字符串，但 net.xml 不是很好看出 connections 的 linkIndex 对应关系。找 AI 要了个脚本来解决：  
+``` bash
+grep -oE 'from="[^"]*"[^>]*linkIndex="[0-9]+"' my.net.xml \
+ | awk 'match($0,/linkIndex="[0-9]+"/){idx=substr($0,RSTART+11,RLENGTH-12);
+       match($0,/from="[^"]*"/); fr=substr($0,RSTART+6,RLENGTH-7);
+       a[idx]=fr} END{for(i=0;i<12;i++) printf "%2d | %s\n", i, a[i]}'
+```
+
+最后输出：
+```
+ 0 | E3
+ 1 | E3
+ 2 | E3
+ 3 | E1
+ 4 | E1
+ 5 | E1
+ 6 | E2
+ 7 | E2
+ 8 | E2
+ 9 | E0
+10 | E0
+11 | E0
+```
+
+可以基本确定是：北东南西。  
+这样就能得到南北绿和东西绿的字符串：  
+
+这样根据之前 Traci 的固定配时代码可以自己写出得到结果：  
+```
+ Retrying in 1 seconds
+Step #663.00 (0ms ?*RT. ?UPS, TraCI: 0ms, vehicles TOT 320 ACT 0 BUF 0)                   
+车辆总数(吞吐) : 320 辆
+平均延误 timeLoss : 19.14 秒
+平均静止等待      : 10.70 秒
+总停车次数        : 163 次
+平均停车次数/辆   : 0.51 次
+```
+这样就完成了独立编写固定配时仿真脚本咯。  
