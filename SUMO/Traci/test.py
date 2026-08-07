@@ -1,6 +1,7 @@
 import traci
+import sumolib
 
-traci.start(["sumo-gui", "-c", "cross.sumocfg", "--start"])
+traci.start(["sumo", "-c", "cross.sumocfg", "--start"])
 
 print(traci.getVersion())
 

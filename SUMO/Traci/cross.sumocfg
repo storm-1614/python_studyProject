@@ -3,6 +3,9 @@
         <net-file value="cross.net.xml"/>
         <route-files value="cross.rou.xml"/>
     </input>
+    <output>
+        <tripinfo-output value="tripinfo.xml"/>
+    </output>
     <gui_only>
         <gui-settings-file value=""/>
     </gui_only>

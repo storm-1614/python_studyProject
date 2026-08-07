@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 plt.rcParams["font.sans-serif"] = ["Source Han Sans SC", "SimHei", "Heiti SC"]
 plt.rcParams["axes.unicode_minus"] = False  # 正常显示负号
 
-traci.start(["sumo-gui", "-c", "cross.sumocfg"])
+traci.start(["sumo", "-c", "cross.sumocfg", "--seed", "42"])
 
 TLS_ID = "J1"
 GREEN = {"NS": "GGGrrrGGGrrr", "EW": "rrrGGGrrrGGG"}
@@ -25,7 +25,7 @@ def yellow_of(green_state):
 
 
 GREEN_DUR = 30
-YELLOW_DUR = 3
+YELLOW_DUR = 2
 
 MAX_GREEN = 60
 
@@ -68,7 +68,6 @@ while traci.simulation.getMinExpectedNumber() > 0:  # type: ignore[assignment]
             if (
                 cur == "NS" and ns + 2 > ew or cur == "EW" and ew + 2 > ns
             ) and phase_time < MAX_GREEN:
-                print("续绿")
                 hold = GREEN_DUR
                 continue
 
@@ -93,4 +92,21 @@ plt.ylabel("排队车辆数")
 plt.title("交叉口总排队车辆数随时间变化")
 
 plt.grid(True)
-plt.show()
+#plt.show()
+
+import xml.etree.ElementTree as ET
+
+tree = ET.parse("tripinfo.xml")
+trips = list(tree.getroot().iter("tripinfo"))
+
+if trips:
+    n = len(trips)
+    loss = sum(float(t.get("timeLoss", 0)) for t in trips)
+    waitTime = sum(float(t.get("waitingTime", 0)) for t in trips)
+    wait = sum(int(t.get("waitingCount", 0)) for t in trips)
+
+    print(f"车辆总数(吞吐) : {n} 辆")
+    print(f"平均延误 timeLoss : {loss / n:.2f} 秒")
+    print(f"平均静止等待      : {waitTime / n:.2f} 秒")
+    print(f"总停车次数        : {wait} 次")
+    print(f"平均停车次数/辆   : {wait / n:.2f} 次")
